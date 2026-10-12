@@ -48,6 +48,7 @@
       padding: 15px 44px; border-radius: 50px; cursor: pointer;
       box-shadow: 0 6px 20px rgba(0,0,0,0.35); transition: transform 0.15s ease; }
     .btn:active { transform: scale(0.94); }
+    .btn.share { background: linear-gradient(180deg, #58d68d, #2eaf6a); color: #fff; }
     .choice-btn { width: 100%; margin-top: 10px; padding: 14px 16px; font-size: 14.5px;
       font-weight: bold; text-align: left; border-radius: 16px;
       border: 3px solid var(--gold); background: #fff; color: var(--ink);
@@ -102,7 +103,9 @@
         radial-gradient(rgba(0,0,0,0.06) 1.5px, transparent 1.6px);
       background-size: 26px 26px, 26px 26px;
       background-position: 0 0, 13px 13px;
-      box-shadow: inset 0 0 46px rgba(0,0,0,0.28), 0 10px 34px rgba(0,0,0,0.4); }
+      box-shadow: inset 0 0 46px rgba(0,0,0,0.28), 0 10px 34px rgba(0,0,0,0.4);
+      transition: filter 1.2s ease; }
+    .compound.night { filter: brightness(0.5) saturate(0.7); }
     @media (max-width: 520px) {
       .compound { height: 405px; }
     }
@@ -147,6 +150,15 @@
       padding: 18px; overflow-y: auto; }
     .overlay.active { display: flex; }
     .overlay .card { max-width: 460px; }
+    /* NIGHT THEME */
+    .overlay.dark .card { background: #0f241a; color: #e8f5ee;
+      border: 2px solid rgba(245,197,24,0.35); }
+    .overlay.dark .card-title { color: #fff; }
+    .overlay.dark .card-text { color: #cfe8d8; }
+    .overlay.dark .choice-btn { background: #163325; color: #fff; }
+    .overlay.dark .chip { background: rgba(245,197,24,0.12); color: #f1e9c8; }
+    .overlay.dark .chip.pos { border-left-color: #58d68d; }
+    .overlay.dark .chip.neg { border-left-color: #e26a5d; }
     .toast { position: fixed; bottom: 64px; left: 50%; transform: translateX(-50%);
       background: rgba(7,40,28,0.95); border: 2px solid var(--gold); color: #fff;
       padding: 12px 18px; border-radius: 16px; font-size: 13px; line-height: 1.45;
@@ -247,7 +259,7 @@
 
   <!-- SCREEN 6: THE COMPOUND MAP -->
   <div id="screen-map" class="screen">
-    <div class="map-banner">📍 <span id="mapObjective">...</span></div>
+    <div class="map-banner" id="mapBanner">📍 <span id="mapObjective">...</span></div>
 
     <div class="compound" id="compound">
       <div class="path-h"></div>
@@ -284,14 +296,14 @@
     </div>
   </div>
 
-  <!-- END OF DAY OVERLAY -->
+  <!-- END / TRANSITION OVERLAY -->
   <div id="endOverlay" class="overlay">
     <div class="card">
-      <p class="kicker">End of Day 1</p>
-      <div class="card-title">📚 First Day Complete!</div>
+      <p class="kicker" id="endKicker">End of Day</p>
+      <div class="card-title" id="endTitle">—</div>
       <div id="endSummary"></div>
-      <p class="card-text">Next: lights-out... and her footsteps. 👟</p>
-      <button class="btn" onclick="goMenu()">MAIN MENU 🏫</button>
+      <button class="btn" id="endBtn" onclick="endBtnAction()">NEXT ➡️</button>
+      <button class="btn share" id="shareBtn" style="display:none" onclick="shareProgress()">📣 SHARE MY STORY</button>
     </div>
   </div>
 
@@ -299,14 +311,18 @@
   <div class="toast" id="toast"></div>
 
   <script>
-    const SAVE_KEY = "unico_save_v2";
+    const SAVE_KEY = "unico_save_v3";
     let busy = false;
     let toastTimer = null;
+    let nightAnim = null;
 
     let player = {
       name: "", hometown: "", gender: "boy",
       family: null, house: null,
-      money: 0, day: 1, eventIndex: 0, atLocation: "gate",
+      money: 0, day: 1, eventIndex: 0,
+      phase: "day",           /* "day" | "night" | "done" */
+      atLocation: "gate",
+      lastNight: "",
       stats: { brains: 50, happiness: 50, popularity: 50 },
       needs: { hunger: 70, energy: 70, freshness: 70 },
       flags: []
@@ -415,104 +431,301 @@
       field:     { name: "Sports Field", flavor: "⚽ Okocha Junior is juggling. 'Scouts are coming next week. You'll see.'" }
     };
 
-    const EVENTS = [
+    /* ---------- SCHEDULE: DAYS OF EVENTS ---------- */
+    const SCHEDULE = [
       {
-        loc: "gate", time: "7:12 AM", title: "🚪 The Gate Senior",
-        text: "First morning at Unity. Your bag is bigger than your shoulders. At the gate stands a giant in a red sweater — a senior. “Junior! Where is my welcome biscuit?” The whole queue is watching. 😳",
-        choices: [
-          { label: "😅 Politely greet him — “Good morning, senior. I'm new JSS1.”",
-            result: { text: "The senior smiles. “New boy, you have sense.” You buy him biscuit at the tuck shop — consider it school fees. Somewhere, Mama C takes note of the polite small one.",
-              money: -100, happiness: -3, flag: "Respectful Junior" } },
-          { label: "🏃 Take the bush path behind the chapel",
-            result: { text: "You dodge mud, goats and one angry goose. You arrive at assembly LATE — but with a story. Ambassador Osas salutes you from across the field. 😂",
-              energy: -10, happiness: -5, popularity: 5, flag: "Street Smart" } },
-          { label: "🎓 Report him to the prefect",
-            result: { text: "“Almighty” Emeka appears like thunder. The senior vanishes faster than NEPA light. But Radio saw everything... 👀",
-              popularity: 3, happiness: 2, flag: "Brave New Boy" } }
+        day: 1,
+        events: [
+          {
+            loc: "gate", time: "7:12 AM", title: "🚪 The Gate Senior",
+            text: "First morning at Unity. Your bag is bigger than your shoulders. At the gate stands a giant in a red sweater — a senior. “Junior! Where is my welcome biscuit?” The whole queue is watching. 😳",
+            choices: [
+              { label: "😅 Politely greet him — “Good morning, senior. I'm new JSS1.”",
+                result: { text: "The senior smiles. “New boy, you have sense.” You buy him biscuit at the tuck shop — consider it school fees. Somewhere, Mama C takes note of the polite small one.",
+                  money: -100, happiness: -3, flag: "Respectful Junior" } },
+              { label: "🏃 Take the bush path behind the chapel",
+                result: { text: "You dodge mud, goats and one angry goose. You arrive at assembly LATE — but with a story. Ambassador Osas salutes you from across the field. 😂",
+                  energy: -10, happiness: -5, popularity: 5, flag: "Street Smart" } },
+              { label: "🎓 Report him to the prefect",
+                result: { text: "“Almighty” Emeka appears like thunder. The senior vanishes faster than NEPA light. But Radio saw everything... 👀",
+                  popularity: 3, happiness: 2, flag: "Brave New Boy" } }
+            ]
+          },
+          {
+            loc: "assembly", time: "7:45 AM", title: "📣 The Assembly Roar",
+            text: "Assembly ground. Mr. Nwosu is announcing “Discipline Week”. And at the quietest moment... your stomach ROARS like a keke napep with no silencer. 😭 The whole school turns.",
+            choices: [
+              { label: "😂 Own it — bow like you just finished a concert",
+                result: { text: "Laughter everywhere. Even Mr. Nwosu fights a smile. By break time, students you've never met are calling you Chairman. 🔥",
+                  happiness: 5, popularity: 8, flag: "Assembly Legend" } },
+              { label: "🤐 Deny it with your whole chest",
+                result: { text: "“It wasn't me!” ... and the keke sound happens AGAIN. Nobody believes you. The shame files a permanent address in your chest. 😭",
+                  happiness: -5, popularity: 1, flag: "Innocent by Force" } },
+              { label: "👉 Point at the JSS3 boy beside you",
+                result: { text: "He gets the look from Mr. Nwosu. You escape... but Radio is already broadcasting your name. 🗣️ Karma books appointments. 👀",
+                  popularity: 3, happiness: 2, flag: "Blame Master" } }
+            ]
+          },
+          {
+            loc: "classroom", time: "9:30 AM", title: "🧮 Mr. Nwosu's Question",
+            text: "First Maths class. Mr. Nwosu walks in like harmattan: “Who taught you people this nonsense?” Then his eyes land on YOU. “You! What is 7 × 8?” Chalk dust hangs in the air. ⏳",
+            choices: [
+              { label: "🙋 Stand up and answer: “Fifty-six, sir!”",
+                result: { text: "Mr. Nwosu nods slowly. “Sit down.” From Nwosu, that is a standing ovation. 🏆",
+                  brains: 5, popularity: 4, flag: "Chalk Survivor" } },
+              { label: "😶 Tell the truth: “I don't know, sir.”",
+                result: { text: "“At least you didn't guess. See me after class.” Honesty: expensive, but clean. 🧠",
+                  brains: 2, happiness: -4, flag: "Honest Student" } },
+              { label: "👀 Risk it — peek at your seatmate's notebook", chance: 0.5,
+                win: { text: "Her notebook is angled like a gift from God. “Fifty-six!” Correct. Your heart is beating like the school bell. 🥷",
+                  brains: 3, popularity: 1, flag: "Sly" },
+                lose: { text: "You tilt your head too far... “EYES ON YOUR OWN PAPER!” Your name becomes the example of the day. 😭",
+                  happiness: -8, popularity: -2, flag: "Caught Peeking" } }
+            ]
+          },
+          {
+            loc: "tuckshop", time: "11:00 AM", title: "🍽️ Break Time — Tuck Shop",
+            text: "The bell frees the whole school. The tuck shop queue is longer than the water queue. Gala and Lacasera smell everywhere. Your stomach remembers the assembly roar. 🥲",
+            choices: [
+              { label: "💸 Buy Gala + Lacasera like a boss (₦400)",
+                result: { text: "Cold Lacasera after hot Gala — the combo of champions. You chew with your chest out. 🏆",
+                  money: -400, hunger: 25, happiness: 8 } },
+              { label: "🤝 Join Chico's contribution — ₦100 enter, everybody eats",
+                result: { text: "Ten students, ₦1,000, one mountain of biscuits. Chico calls it “investment”. You call it family. 🍪",
+                  money: -100, hunger: 20, popularity: 6, flag: "Team Player" } },
+              { label: "💧 Drink tap water and manage",
+                result: { text: "“Water has no enemy.” Your wallet thanks you. Your stomach files a complaint. 😂",
+                  hunger: -5, energy: 5, happiness: -6, flag: "Forecast Planner" } }
+            ]
+          },
+          {
+            loc: "field", time: "2:00 PM", title: "⚽ Games Period — Okocha Junior's Trial",
+            text: "Games period. Okocha Junior is picking teams and stops in front of you. “Small one. Show me something.” The whole field is watching. The ball rolls to your feet... 🌀",
+            choices: [
+              { label: "🌀 Attempt the RAINBOW FLICK", chance: 0.5,
+                win: { text: "The ball arcs over your head AND his. The field ERUPTS. Okocha Junior hugs you: “Scouts! I told you people!” 🔥",
+                  popularity: 8, happiness: 5, hunger: -5, flag: "Field Legend" },
+                lose: { text: "The ball flies majestically... into Mr. Adamu's face. Silence. “Is it football I sent you to come and play?!” Frog jump loading... 😭",
+                  energy: -10, happiness: -6, popularity: 2, flag: "Crossbar Criminal" } },
+              { label: "🛡️ Play it safe — defend well, no drama",
+                result: { text: "Two clean tackles, zero highlights. Okocha Junior nods: “Safe legs. I go manage you.” 😄",
+                  energy: -5, happiness: 3, popularity: 2, flag: "Safe Legs" } },
+              { label: "😎 Sit under the tree forming big boy",
+                result: { text: "Femi “International” joins you. You both discuss Atlanta and “investment opportunities”. Your popularity with seniors: rising. With the field: falling. 😎",
+                  energy: 5, popularity: -2, happiness: 1, flag: "Forming International" } }
+            ]
+          },
+          {
+            loc: "gate", time: "4:30 PM", title: "🌇 The Closing Bell",
+            text: "“GO AND COME!” — wait. Today you're a BOARDER. The gate is for visitors only. Mama C laughs at your face: “Small one, YOUR own is dormitory. Go and arrange your bucket. Lights-out is 10 PM.” 😭",
+            choices: [
+              { label: "🚶 Walk slowly with your new classmates to the dorm",
+                result: { text: "Ten minutes of “which primary school you come from?” turns into your first friend circle in Unity. 🔥",
+                  popularity: 3, happiness: 3, flag: "Slow Walker Squad" } },
+              { label: "📚 Stay back and copy today's notes",
+                result: { text: "Empty classroom, quiet pen. Mr. Bello passes by and nods. The notes enter your head like cement. 🧠",
+                  brains: 5, energy: -8 } },
+              { label: "🍖 Dotrek to the dining hall first — rice day!",
+                result: { text: "You attack the rice with full chest. The meat is... decorative. But hunger respects nobody. 😂",
+                  hunger: 25, happiness: 4 } }
+            ]
+          }
         ]
       },
       {
-        loc: "assembly", time: "7:45 AM", title: "📣 The Assembly Roar",
-        text: "Assembly ground. Mr. Nwosu is announcing “Discipline Week”. And at the quietest moment... your stomach ROARS like a keke napep with no silencer. 😭 The whole school turns.",
-        choices: [
-          { label: "😂 Own it — bow like you just finished a concert",
-            result: { text: "Laughter everywhere. Even Mr. Nwosu fights a smile. By break time, students you've never met are calling you Chairman. 🔥",
-              happiness: 5, popularity: 8, flag: "Assembly Legend" } },
-          { label: "🤐 Deny it with your whole chest",
-            result: { text: "“It wasn't me!” ... and the keke sound happens AGAIN. Nobody believes you. The shame files a permanent address in your chest. 😭",
-              happiness: -5, popularity: 1, flag: "Innocent by Force" } },
-          { label: "👉 Point at the JSS3 boy beside you",
-            result: { text: "He gets the look from Mr. Nwosu. You escape... but Radio is already broadcasting your name. 🗣️ Karma books appointments. 👀",
-              popularity: 3, happiness: 2, flag: "Blame Master" } }
-        ]
-      },
-      {
-        loc: "classroom", time: "9:30 AM", title: "🧮 Mr. Nwosu's Question",
-        text: "First Maths class. Mr. Nwosu walks in like harmattan: “Who taught you people this nonsense?” Then his eyes land on YOU. “You! What is 7 × 8?” Chalk dust hangs in the air. ⏳",
-        choices: [
-          { label: "🙋 Stand up and answer: “Fifty-six, sir!”",
-            result: { text: "Mr. Nwosu nods slowly. “Sit down.” From Nwosu, that is a standing ovation. 🏆",
-              brains: 5, popularity: 4, flag: "Chalk Survivor" } },
-          { label: "😶 Tell the truth: “I don't know, sir.”",
-            result: { text: "“At least you didn't guess. See me after class.” Honesty: expensive, but clean. 🧠",
-              brains: 2, happiness: -4, flag: "Honest Student" } },
-          { label: "👀 Risk it — peek at your seatmate's notebook", chance: 0.5,
-            win: { text: "Her notebook is angled like a gift from God. “Fifty-six!” Correct. Your heart is beating like the school bell. 🥷",
-              brains: 3, popularity: 1, flag: "Sly" },
-            lose: { text: "You tilt your head too far... “EYES ON YOUR OWN PAPER!” Your name becomes the example of the day. 😭",
-              happiness: -8, popularity: -2, flag: "Caught Peeking" } }
-        ]
-      },
-      {
-        loc: "tuckshop", time: "11:00 AM", title: "🍽️ Break Time — Tuck Shop",
-        text: "The bell frees the whole school. The tuck shop queue is longer than the water queue. Gala and Lacasera smell everywhere. Your stomach remembers the assembly roar. 🥲",
-        choices: [
-          { label: "💸 Buy Gala + Lacasera like a boss (₦400)",
-            result: { text: "Cold Lacasera after hot Gala — the combo of champions. You chew with your chest out. 🏆",
-              money: -400, hunger: 25, happiness: 8 } },
-          { label: "🤝 Join Chico's contribution — ₦100 enter, everybody eats",
-            result: { text: "Ten students, ₦1,000, one mountain of biscuits. Chico calls it “investment”. You call it family. 🍪",
-              money: -100, hunger: 20, popularity: 6, flag: "Team Player" } },
-          { label: "💧 Drink tap water and manage",
-            result: { text: "“Water has no enemy.” Your wallet thanks you. Your stomach files a complaint. 😂",
-              hunger: -5, energy: 5, happiness: -6, flag: "Forecast Planner" } }
-        ]
-      },
-      {
-        loc: "field", time: "2:00 PM", title: "⚽ Games Period — Okocha Junior's Trial",
-        text: "Games period. Okocha Junior is picking teams and stops in front of you. “Small one. Show me something.” The whole field is watching. The ball rolls to your feet... 🌀",
-        choices: [
-          { label: "🌀 Attempt the RAINBOW FLICK", chance: 0.5,
-            win: { text: "The ball arcs over your head AND his. The field ERUPTS. Okocha Junior hugs you: “Scouts! I told you people!” 🔥",
-              popularity: 8, happiness: 5, hunger: -5, flag: "Field Legend" },
-            lose: { text: "The ball flies majestically... into Mr. Adamu's face. Silence. “Is it football I sent you to come and play?!” Frog jump loading... 😭",
-              energy: -10, happiness: -6, popularity: 2, flag: "Crossbar Criminal" } },
-          { label: "🛡️ Play it safe — defend well, no drama",
-            result: { text: "Two clean tackles, zero highlights. Okocha Junior nods: “Safe legs. I go manage you.” 😄",
-              energy: -5, happiness: 3, popularity: 2, flag: "Safe Legs" } },
-          { label: "😎 Sit under the tree forming big boy",
-            result: { text: "Femi “International” joins you. You both discuss Atlanta and “investment opportunities”. Your popularity with seniors: rising. With the field: falling. 😎",
-              energy: 5, popularity: -2, happiness: 1, flag: "Forming International" } }
-        ]
-      },
-      {
-        loc: "gate", time: "4:30 PM", title: "🌇 The Closing Bell",
-        text: "“GO AND COME!” — the sweetest words in any Nigerian school. Students rush the gate like water. Almighty Emeka announces: “JSS1 orientation tomorrow — come with your bucket!” Then Mama C appears beside you: “You. Small one. You'll be fine. Anybody touches you, tell me.” ❤️",
-        choices: [
-          { label: "🏃 Rush home with the tide",
-            result: { text: "You flow with the crowd, slippers slapping dust. Home. Food. Rest. Tomorrow, the real school begins.",
-              energy: -5, happiness: 5 } },
-          { label: "🚶 Walk slowly with your new classmates",
-            result: { text: "Ten minutes of “which primary school you come from?” turns into your first friend circle in Unity. 🔥",
-              popularity: 3, happiness: 3, flag: "Slow Walker Squad" } },
-          { label: "📚 Stay back and copy today's notes",
-            result: { text: "Empty classroom, quiet pen. Mr. Bello passes by and nods. The notes enter your head like cement. 🧠",
-              brains: 5, energy: -8 } }
+        day: 2,
+        events: [
+          {
+            loc: "dorm", time: "6:00 AM", title: "🪣 JSS1 Orientation — Bucket Inspection",
+            text: "5:45 AM. A senior walks the dorm rows inspecting buckets. He stops at YOUR corner. “JJC! Is this bucket or plate?! In my time, we used drums!” The whole dorm is watching your bucket. 🪣",
+            choices: [
+              { label: "😤 Defend it with pride — “Senior, na my bucket I get.”",
+                result: { text: "He stares... then nods slowly. “At least you no dey lie.” Respect earned. Ownership is a personality. 🏆",
+                  happiness: 3, popularity: 4, flag: "Proud Owner" } },
+              { label: "🙏 Borrow Big Man's Pikin's spare bucket quickly", chance: 0.5,
+                win: { text: "You flash the shiny rubber bucket. Senior salutes it ironically and moves on. Crisis managed. 😮‍💨",
+                  popularity: 2, happiness: 2, flag: "QuickThinker" },
+                lose: { text: "The owner walks in asking for HIS bucket... while it's in YOUR hands. Senior: “THIEF!” 😭 Kneel down... IMAGINARY bucket of shame.",
+                  happiness: -6, popularity: -2, flag: "Caught Borrowing" } },
+              { label: "📖 Explain it's also your school-bag stand, stool AND drum",
+                result: { text: "The dorm EXPLODES with laughter. Even the senior fights it: “Multi-purpose pikin.” Legend status loading... 😂",
+                  popularity: 5, happiness: 4, flag: "Multi-Purpose Chairman" } }
+            ]
+          },
+          {
+            loc: "assembly", time: "6:40 AM", title: "💧 The Water Queue Chronicles",
+            text: "The borehole queue is 40 students deep and prep starts in 15 minutes. Some are bathing from buckets on their heads. Time is ticking... ⏳",
+            choices: [
+              { label: "⏰ Tomorrow: wake at 4:30 AM like a soldier",
+                result: { text: "You lose today's battle but win tomorrow's war. The 4:30 club salutes you at dawn. ☀️",
+                  energy: -10, happiness: 2, flag: "Early Riser" } },
+              { label: "🧠 Use strategy — queue where the line doubles back", chance: 0.5,
+                win: { text: "GENIUS. The doubling point moves twice as fast. You fill your bucket and still make prep. 🧠💧",
+                  happiness: 4, popularity: 3, flag: "Queue Professor" },
+                lose: { text: "The 'shortcut' was actually the SLOWEST line. You arrive at prep smelling like potential. 😭",
+                  energy: -6, happiness: -4, flag: "Strategy Student" } },
+              { label: "❤️ Ask Mama C to help you — she knows the tap-owner senior",
+                result: { text: "“Anybody touches this small one's bucket, na me.” The queue PARTS like the Red Sea. Mama C is a whole government. 😄",
+                  happiness: 5, popularity: 4, flag: "Mama C's Pikin" } }
+            ]
+          },
+          {
+            loc: "classroom", time: "9:00 AM", title: "📖 English Class — Mrs. Adebayo",
+            text: "Mrs. Adebayo circles the class like a hawk with red ink: “It is ‘I WAS', not ‘I were'! Were you raised by goats?!” Then her finger lands on YOU. “Correct this: ‘We was playing.'” 🎯",
+            choices: [
+              { label: "🙋 “We WERE playing, ma!”",
+                result: { text: "“Correct.” One word. One nod. The class exhales. Grammar Defender status: UNLOCKED. 🏆",
+                  brains: 5, popularity: 3, flag: "Grammar Defender" } },
+              { label: "😬 Panic: “We was... were... was-ed...”",
+                result: { text: "The class is IN TEARS. Even Mrs. Adebayo turns to the board to hide her face. You failed English but won comedy. 😂",
+                  happiness: -3, popularity: 6, flag: "Comedy of Errors" } },
+              { label: "😎 Translate to pidgin on purpose: “We dey play, ma.”",
+                result: { text: "“GET OUT!!” — but the whole class is rolling on the floor. Outside, you hear them still laughing. Worth it. 😎",
+                  popularity: 5, happiness: 2, brains: 1, flag: "Pidgin Professor" } }
+            ]
+          },
+          {
+            loc: "tuckshop", time: "12:30 PM", title: "👀 The Expo Offer",
+            text: "Break time. Expo slides beside you like a shadow: “Pssst. Tomorrow's test questions. ₦500. Me and you. Nobody will know.” He opens his palm slightly... the paper glows. 👀",
+            choices: [
+              { label: "💸 Pay ₦500 for the leaked questions", chance: 0.5,
+                win: { text: "IT'S REAL!! Actual questions!! You hide it like contraband gold. Tomorrow's test is already yours. 🥷 (This will matter...)",
+                  money: -500, brains: 2, flag: "Expo Holder" },
+                lose: { text: "The paper says: “1. What is your name? 2. How old are you?” ... EXPO HAS scammed you. ₦500 entered voice note. 😭",
+                  money: -500, happiness: -6, flag: "Maga" } },
+              { label: "🚫 Refuse — “I will read with my head.”",
+                result: { text: "Expo hisses and disappears. You feel CLEAN. Mr. Bello's voice in your head: “Read, and the sky is your starting point.” 📚",
+                  brains: 4, happiness: 3, flag: "Clean Hands" } },
+              { label: "🎓 Report him to the class prefect",
+                result: { text: "Expo is marched to the VP's office. The whole class calls you “SNG” — Sure No Get shame... but teachers now trust you COMPLETELY. 👀",
+                  popularity: -3, brains: 2, flag: "Whistleblower" } }
+            ]
+          }
         ]
       }
     ];
 
-    /* ---------- FLOW ---------- */
+    /* ---------- NIGHT SYSTEM ---------- */
+    const NIGHTS = {
+      fun: [
+        { id: "fun-noodles", title: "🍳 Midnight Noodles", time: "11:48 PM",
+          text: "Lights out 30 minutes ago... then the smell hits you. Professor Indomie is at work in the dark: two sticks, one egg, four minutes. The whole dorm is pretending to sleep. Nobody is sleeping. 😂",
+          choices: [
+            { label: "💸 Invest ₦150 — “Professor, add my own!”",
+              result: { text: "You eat midnight indomie at 11:59 PM and understand, for the first time, why humans built cities. 🍜",
+                money: -150, hunger: 25, happiness: 8, flag: "Indomie Investor" } },
+            { label: "🙏 Beg for “just one fork”",
+              result: { text: "Professor Indomie gives you ONE fork... and it's the sweetest single fork in Nigerian history. 😄",
+                hunger: 10, happiness: 5, popularity: 1, flag: "Fork Beggar" } },
+            { label: "💪 Resist and sleep — discipline!",
+              result: { text: "You sleep like a warrior. The noodles visit you in your dreams as payment. 😂",
+                energy: 10, hunger: -8, happiness: -2, flag: "Iron Will" } }
+          ]
+        },
+        { id: "fun-bashir", title: "😴 Bashir the Statue", time: "12:20 AM",
+          text: "Everyone is asleep... except Bashir — who is asleep STANDING UP beside his bunk like a security guard. A mosquito is hovering near his face. This is a moment of history. 👀",
+          choices: [
+            { label: "📸 Test him — place a book gently in his hands",
+              result: { text: "He takes the book and holds it FIRMLY. The three students watching are crying with silent laughter. Morning Bashir will be confused. 😂",
+                happiness: 6, popularity: 4, flag: "Legend Tester" } },
+            { label: "🛡️ Stand guard so the night prefect doesn't catch him",
+              result: { text: "You whistle softly when the prefect's torch sweeps by. Bashir will never know he owes you. Brotherhood. 🤝",
+                energy: -5, popularity: 3, flag: "Silent Bodyguard" } },
+            { label: "😴 Mind your business and sleep",
+              result: { text: "You close your eyes. Grown men laughing silently is a difficult lullaby, but you manage. 😄",
+                energy: 8, happiness: 2 } }
+          ]
+        },
+        { id: "fun-gist", title: "🗣️ Midnight Gist Session", time: "1:05 AM",
+          text: "In the dark, your roommate whispers the four most dangerous words in boarding school: “I get one gist o...” Six heads rise from pillows at once. 👂",
+          choices: [
+            { label: "👂 Listen until 1:45 AM",
+              result: { text: "The gist has SEQUELS. Chico Valentine wrote a letter to... you'll never recover. You now hold Dorm Intel Level 5. 🔥",
+                happiness: 7, energy: -7, popularity: 2, flag: "Gist Partner" } },
+            { label: "🤐 Pretend to sleep but listen with one ear",
+              result: { text: "Best of both worlds: you heard everything AND you'll be fresh tomorrow. The intelligence community calls this 'the pillow opera'. 😎",
+                energy: 3, happiness: 4, flag: "Pillow Opera" } },
+            { label: "📢 Ask “WHO is the gist about?!” too loudly",
+              result: { text: "SILENCE. Somewhere, a torch comes on. Footsteps approach. Everyone scatters into sleeping positions. The prefect stands... then leaves. Hearts: restarted. 😭",
+                happiness: -2, energy: -3, flag: "Loud Speaker" } }
+          ]
+        }
+      ],
+      creepy: [
+        { id: "creepy-whistle", title: "👅 The Whistling", time: "12:44 AM",
+          text: "A slow whistling drifts from outside the dorm. Long... deliberate... patient. Your roommate's whisper: “Don't answer. Whatever you do — DON'T answer.” The whistle gets CLOSER. 🥶",
+          choices: [
+            { label: "👀 Look through the window",
+              result: { text: "Empty. Nothing. But the whistling continues... now from INSIDE the compound wall. You back away slowly. Curiosity: expensive. 👁️",
+                happiness: -5, flag: "Curious Cat" } },
+            { label: "🫣 Disappear under the blanket",
+              result: { text: "Blanket technology: undefeated since 1800s. The whistling circles the dorm twice... then fades. You survive. 🥶",
+                happiness: -3, energy: 2, flag: "Blanket Survivor" } },
+            { label: "🙏 Pray — Mummy's memory verse, full volume (in your heart)",
+              result: { text: "“The Lord is my shepherd...” The whistling STOPS mid-note. Just cuts. Your roommate whispers: “You get power o.” 🙏✨",
+                happiness: 4, flag: "Prayer Warrior" } },
+            { label: "😴 Force yourself to sleep",
+              result: { text: "You wake to a strange discovery: your SLIPPERS are now under the bunk, neatly paired, facing the wall. You did not do that. 😨",
+                energy: 4, happiness: -4, flag: "Slipper Mystery" } }
+          ]
+        },
+        { id: "creepy-voice", title: "🗣️ The Voice", time: "1:23 AM",
+          text: "Your name. Someone is calling your name from INSIDE the dark dorm — softly, patiently, twice. But your roommate is right beside you... whispering: “Who's that calling you?” Neither of you is speaking. 😨",
+          choices: [
+            { label: "👀 Answer: “Who dey there?!”",
+              result: { text: "Silence. The dorm is empty in every direction. The calling never comes again — but nobody sleeps properly after that. 👁️",
+                happiness: -6, flag: "Brave... Ish" } },
+            { label: "🫣 Pull your blanket like a fortress",
+              result: { text: "The voice calls ONE more time — closer — then stops forever. You and your roommate face each other in the dark like brothers in war. 🥶",
+                happiness: -4, energy: 2, flag: "Blanket Brothers" } },
+            { label: "🙏 Pray in tongues (your own special version)",
+              result: { text: "You pray in a language even YOU don't understand. The air becomes... normal. Your roommate: “Pray for me too abeg.” 😂🙏",
+                happiness: 4, flag: "Prayer Warrior" } },
+            { label: "😴 Sleep is for the brave",
+              result: { text: "You sleep. At dawn, a JSS2 boy asks why you were 'talking to yourself' at night. You transfer schools... in your mind. 😭",
+                energy: 3, popularity: -1, flag: "Night Talker" } }
+          ]
+        },
+        { id: "creepy-footprints", title: "👣 Wet Footprints", time: "2:09 AM",
+          text: "Someone goes out to pee... and comes back SCREAMING in whisper: wet footprints along the corridor. Bare footprints. They walk FROM the tap... and stop — directly at YOUR door. 🥶",
+          choices: [
+            { label: "👀 Look through the keyhole",
+              result: { text: "Nothing. Darkness. Then — a single drop of water falls... from ABOVE your own door. Inside. You return to bed spiritually. 👁️💧",
+                happiness: -6, flag: "Keyhole Witness" } },
+            { label: "🫣 Cover head. Think of jollof rice. Survive.",
+              result: { text: "Jollof rice meditation works. The footsteps never enter. In the morning the corridor is DRY like nothing happened. 🍚",
+                happiness: -3, energy: 3, flag: "Jollof Meditation" } },
+            { label: "🙏 Prayer + Psalm 23 combo attack",
+              result: { text: "You pray LOUDLY in your heart until your chest is hot. The door stays shut all night. Morning comes with sunshine and peppered ponmo smell. 🙏☀️",
+                happiness: 5, flag: "Prayer Warrior" } },
+            { label: "😴 Sleep — “I didn't see anything, so nothing happened.”",
+              result: { text: "Powerful logic. Sadly, at 3 AM you feel the mattress dip slightly at the corner... You stared at the ceiling till daybreak. 😨",
+                energy: -4, happiness: -5, flag: "Mattress Dip" } }
+          ]
+        }
+      ],
+      her: [
+        { id: "her-koi", title: "👠 Koi… Koi… Koi…", time: "1:47 AM",
+          text: "You wake up. Not from noise — from SILENCE. The whole dorm is holding its breath. Then, far down the corridor: koi… koi… koi… Heels. OnTiles. Coming closer. Every legend you've heard explodes in your chest at once. 🥶",
+          choices: [
+            { label: "👀 Look through the keyhole",
+              result: { text: "Red heels. White gown. Lips redder than fire... turning the corner. Gone. YOU SAW HER. Few students ever see her and remain normal. 👁️😱",
+                happiness: -8, popularity: 5, flag: "Eye Witness" } },
+            { label: "🫣 Under the blanket. Don't breathe. Don't exist.",
+              result: { text: "The footsteps stop — AT YOUR DOOR. Three knocks. Soft. Patient. Then... silence. You don't sleep again. You just wait for morning like a philosopher. 😨",
+                happiness: -7, flag: "She Knocked" } },
+            { label: "🙏 Pray like Mummy taught you",
+              result: { text: "“The Lord is my shepherd, I shall not want…” The footsteps pause… turn… and FADE back down the corridor. Mummy's Sunday phone call just saved your life. ❤️🙏",
+                happiness: 3, flag: "Protected" } },
+            { label: "😴 Sleep?? Impossible. Play dead.",
+              result: { text: "You lie stiff as firewood until dawn. At sunrise, a JSS1 boy across the hall FAINTS during devotion — he heard the heels too. You dodged a fainting. 🥲",
+                energy: -5, happiness: -4, flag: "Lucky Sleeper" } }
+          ]
+        }
+      ]
+    };
+
+    /* ---------- FLOW: REGISTRATION ---------- */
     function startStory() {
       let name = document.getElementById("playerName").value.trim();
       if (name === "") {
@@ -537,7 +750,9 @@
         player.flags = roll.flag ? [roll.flag] : [];
         player.day = 1;
         player.eventIndex = 0;
+        player.phase = "day";
         player.atLocation = "gate";
+        player.lastNight = "";
 
         document.getElementById("rollHeading").textContent = "✨ Your family!";
         document.getElementById("rollCard").innerHTML =
@@ -615,14 +830,47 @@
       w.style.transition = "left 1.2s ease-in-out, top 1.2s ease-in-out";
     }
 
+    function currentDayEvents() {
+      for (let i = 0; i < SCHEDULE.length; i++) {
+        if (SCHEDULE[i].day === player.day) return SCHEDULE[i].events;
+      }
+      return [];
+    }
+
     function renderObjective() {
       let pins = document.querySelectorAll(".bld");
       for (let i = 0; i < pins.length; i++) pins[i].classList.remove("target");
-      let ev = EVENTS[player.eventIndex];
-      if (!ev) {
-        document.getElementById("mapObjective").textContent = "Day complete! 📚";
+      let compound = document.getElementById("compound");
+      let banner = document.getElementById("mapBanner");
+
+      if (player.phase === "day") {
+        let evs = currentDayEvents();
+        if (player.eventIndex >= evs.length) {
+          player.phase = "night";
+          saveGame();
+        }
+      }
+
+      compound.classList.remove("night");
+      banner.style.borderColor = "var(--gold)";
+
+      if (player.phase === "night") {
+        compound.classList.add("night");
+        banner.style.borderColor = "#8ab6ff";
+        document.getElementById("mapObjective").textContent =
+          "🌙 Return to the Dormitory — Lights-out";
+        document.getElementById("b-dorm").classList.add("target");
         return;
       }
+
+      if (player.phase === "done") {
+        document.getElementById("mapObjective").textContent =
+          "📣 New school days coming in the next update!";
+        return;
+      }
+
+      let ev = currentDayEvents()[player.eventIndex];
+      if (!ev) return;
       document.getElementById("mapObjective").textContent =
         "Head to the " + LOC[ev.loc].name + " — " + ev.time;
       document.getElementById("b-" + ev.loc).classList.add("target");
@@ -630,7 +878,29 @@
 
     function tapLocation(loc) {
       if (busy) return;
-      let ev = EVENTS[player.eventIndex];
+
+      if (player.phase === "done") {
+        showToast("📣 More school days are being written! Share your story from the main menu.");
+        return;
+      }
+
+      if (player.phase === "night") {
+        if (loc === "dorm") {
+          busy = true;
+          let w = document.getElementById("mapWalker");
+          w.classList.add("bob");
+          moveWalkerCoords(loc);
+          setTimeout(function () {
+            w.classList.remove("bob");
+            startNight();
+          }, 1250);
+        } else {
+          showToast("🌙 It's after lights-out. Everybody belongs in bed... " + LOC[loc].flavor);
+        }
+        return;
+      }
+
+      let ev = currentDayEvents()[player.eventIndex];
       if (!ev) return;
       if (loc === ev.loc) {
         busy = true;
@@ -646,16 +916,19 @@
       }
     }
 
-    /* ---------- EVENT ENGINE ---------- */
+    /* ---------- DAY EVENT ENGINE ---------- */
     function openEvent() {
-      let ev = EVENTS[player.eventIndex];
+      let ev = currentDayEvents()[player.eventIndex];
       player.atLocation = ev.loc;
       saveGame();
+      document.getElementById("eventOverlay").classList.remove("dark");
       document.getElementById("evDay").textContent = "DAY " + player.day + " • " + ev.time;
       document.getElementById("evTitle").textContent = ev.title;
       document.getElementById("evText").textContent = ev.text;
       document.getElementById("resultCard").style.display = "none";
-      document.getElementById("nextBtn").style.display = "none";
+      let nb = document.getElementById("nextBtn");
+      nb.style.display = "none";
+      nb.textContent = "NEXT ➡️";
       let box = document.getElementById("choicesBox");
       box.innerHTML = "";
       ev.choices.forEach(function (c, i) {
@@ -675,7 +948,12 @@
     }
 
     function choose(i) {
-      let ev = EVENTS[player.eventIndex];
+      let ev;
+      if (player.phase === "night") {
+        ev = currentNight;
+      } else {
+        ev = currentDayEvents()[player.eventIndex];
+      }
       let c = ev.choices[i];
       let out = c.chance ? (Math.random() < c.chance ? c.win : c.lose) : c.result;
 
@@ -705,26 +983,110 @@
       document.getElementById("resultCard").style.display = "block";
       document.getElementById("resultText").textContent = out.text;
       document.getElementById("resultChips").innerHTML = chips;
-      document.getElementById("nextBtn").style.display = "block";
+      let nb = document.getElementById("nextBtn");
+      nb.textContent = player.phase === "night" ? "😴 SLEEP" : "NEXT ➡️";
+      nb.style.display = "block";
     }
 
     function nextEvent() {
+      if (player.phase === "night") {
+        endNight();
+        return;
+      }
       player.eventIndex++;
       saveGame();
       document.getElementById("eventOverlay").classList.remove("active");
       busy = false;
-      if (player.eventIndex >= EVENTS.length) {
-        showEnd();
+      renderObjective();
+    }
+
+    /* ---------- NIGHT ENGINE ---------- */
+    let currentNight = null;
+
+    function startNight() {
+      player.atLocation = "dorm";
+      saveGame();
+
+      let overlay = document.getElementById("eventOverlay");
+      overlay.classList.add("dark", "active");
+      document.getElementById("evDay").textContent = "🌙 DAY " + player.day + " • LIGHTS-OUT";
+      document.getElementById("evTitle").textContent = "🕯️ 10:00 PM — Lights Out";
+      document.getElementById("evText").textContent =
+        "The prefect kills the switch. Darkness. Silence... for now. The compound outside turns blue and quiet. Whatever tonight holds — fun, fear, or footsteps — begins now. 🌙";
+      document.getElementById("resultCard").style.display = "none";
+      document.getElementById("nextBtn").style.display = "none";
+      document.getElementById("choicesBox").innerHTML = "";
+
+      let dice = document.createElement("div");
+      dice.className = "dice";
+      dice.id = "nightDice";
+      dice.textContent = "🌙";
+      document.getElementById("choicesBox").appendChild(dice);
+
+      let faces = ["🌙", "🍳", "🗣️", "👅", "👣", "👠", "🙏"];
+      let n = 0;
+      nightAnim = setInterval(function () {
+        document.getElementById("nightDice").textContent = faces[n % faces.length];
+        n++;
+      }, 180);
+
+      setTimeout(revealNight, 2100);
+    }
+
+    function revealNight() {
+      clearInterval(nightAnim);
+      let diceEl = document.getElementById("nightDice");
+      if (diceEl) diceEl.remove();
+
+      let r = Math.random();
+      let cat = (r < 0.05) ? "her" : (r < 0.30 ? "creepy" : "fun");
+
+      let pool = NIGHTS[cat].filter(function (x) { return x.id !== player.lastNight; });
+      if (pool.length === 0) pool = NIGHTS[cat];
+      let encounter = pool[Math.floor(Math.random() * pool.length)];
+      player.lastNight = encounter.id;
+      currentNight = encounter;
+      saveGame();
+
+      document.getElementById("evDay").textContent = "🌙 DAY " + player.day + " • " + encounter.time;
+      document.getElementById("evTitle").textContent = encounter.title;
+      document.getElementById("evText").textContent = encounter.text;
+
+      let box = document.getElementById("choicesBox");
+      box.innerHTML = "";
+      encounter.choices.forEach(function (c, i) {
+        let b = document.createElement("button");
+        b.className = "choice-btn";
+        b.textContent = c.label;
+        b.onclick = function () { choose(i); };
+        box.appendChild(b);
+      });
+      busy = false;
+    }
+
+    function endNight() {
+      document.getElementById("eventOverlay").classList.remove("active");
+      busy = false;
+
+      if (player.day >= SCHEDULE.length) {
+        player.phase = "done";
+        saveGame();
+        showFinal();
       } else {
-        renderObjective();
+        player.phase = "day";
+        player.day++;
+        player.eventIndex = 0;
+        player.needs.energy = clamp(player.needs.energy + 25);
+        player.needs.freshness = clamp(player.needs.freshness + 15);
+        saveGame();
+        showDayEnd();
       }
     }
 
-    function showEnd() {
-      renderObjective();
+    /* ---------- END OVERLAYS ---------- */
+    function summaryChips() {
       let flagsText = player.flags.length ? player.flags.join(" • ") : "none yet — your story is still soft 😄";
-      document.getElementById("endSummary").innerHTML =
-        '<span class="chip">🎒 ' + player.name + " — " + player.house.dot + " " + player.house.name + " House</span>" +
+      return '<span class="chip">🎒 ' + player.name + " — " + player.house.dot + " " + player.house.name + " House</span>" +
         '<span class="chip">💰 ₦' + player.money.toLocaleString() +
         " • 🧠 " + player.stats.brains +
         " • 😊 " + player.stats.happiness +
@@ -733,8 +1095,65 @@
         " • 🔋 " + player.needs.energy +
         " • 🧼 " + player.needs.freshness + "</span>" +
         '<span class="chip">🏅 Flags: ' + flagsText + "</span>";
+    }
+
+    let endMode = "nextday";
+
+    function showDayEnd() {
+      endMode = "nextday";
+      document.getElementById("endKicker").textContent = "🌙 Day " + (player.day - 1) + " complete";
+      document.getElementById("endTitle").textContent = "📚 You survived the night!";
+      document.getElementById("endSummary").innerHTML = summaryChips() +
+        '<span class="chip">☀️ Morning comes... Day ' + player.day + " begins.</span>";
+      let eb = document.getElementById("endBtn");
+      eb.textContent = "☀️ NEXT DAY ➡️";
+      eb.style.display = "block";
+      document.getElementById("shareBtn").style.display = "none";
+      renderObjective();
       document.getElementById("endOverlay").classList.add("active");
-      saveGame();
+    }
+
+    function showFinal() {
+      endMode = "final";
+      document.getElementById("endKicker").textContent = "🏆 Chapter 1 — Days 1 & 2";
+      document.getElementById("endTitle").textContent = "🎒 More days coming soon!";
+      document.getElementById("endSummary").innerHTML = summaryChips() +
+        '<span class="chip">🧮 Exams, Whot 🃏, the tuck shop empire &amp; WAEC are being written.</span>';
+      let eb = document.getElementById("endBtn");
+      eb.textContent = "MAIN MENU 🏫";
+      eb.style.display = "block";
+      document.getElementById("shareBtn").style.display = "block";
+      renderObjective();
+      document.getElementById("endOverlay").classList.add("active");
+    }
+
+    function endBtnAction() {
+      document.getElementById("endOverlay").classList.remove("active");
+      if (endMode === "nextday") {
+        enterCampus();
+      } else {
+        saveGame();
+        document.getElementById("hud").style.display = "none";
+        document.getElementById("menuBtn").style.display = "none";
+        window.location.reload();
+      }
+    }
+
+    function shareProgress() {
+      let flagsText = player.flags.length ? player.flags.join(", ") : "just vibes";
+      let text = "🎒 I'm " + player.name + " of " + player.hometown + ", " +
+        player.house.dot + " " + player.house.name + " House at Unity Comprehensive College!\n" +
+        "💰 ₦" + player.money.toLocaleString() + " • Flags: " + flagsText + "\n" +
+        "Come and play my school life 👉 " + window.location.href;
+      if (navigator.share) {
+        navigator.share({ title: "Unity Comprehensive College", text: text }).catch(function () {});
+      } else {
+        navigator.clipboard.writeText(text).then(function () {
+          alert("Copied! Now paste it anywhere 😄📲");
+        }).catch(function () {
+          alert(text);
+        });
+      }
     }
 
     /* ---------- CONTINUE MAGIC ---------- */
@@ -742,6 +1161,7 @@
       let s = loadGame();
       if (s && s.name) {
         player = s;
+        if (!player.phase) player.phase = "day";
         enterCampus();
       }
     }
@@ -761,4 +1181,4 @@
   </script>
 
 </body>
-  </html>
+                                       </html>
