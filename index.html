@@ -153,7 +153,7 @@
       z-index: 40; display: none; align-items: center; justify-content: center;
       padding: 18px; overflow-y: auto; }
     .overlay.active { display: flex; }
-    .overlay .card { max-width: 460px; }
+    .overlay .card { max-width: 460px; margin: auto; max-height: 90vh; overflow-y: auto; }
     .overlay.dark .card { background: #0f241a; color: #e8f5ee;
       border: 2px solid rgba(245,197,24,0.35); }
     .overlay.dark .card-title { color: #fff; }
@@ -345,7 +345,10 @@
   <div class="toast" id="toast"></div>
 
   <script>
-    const SAVE_KEY = "unico_save_v5";
+    /* ONE PERMANENT SAVE KEY — never changes again! */
+    const SAVE_KEY = "naija_life_save";
+    const LEGACY_KEYS = ["unico_save_v5", "unico_save_v4", "unico_save_v3", "unico_save_v2"];
+
     let busy = false;
     let toastTimer = null;
     let nightAnim = null;
@@ -353,29 +356,61 @@
     let currentPopin = null;
     let endMode = "nextday";
 
-    let player = {
-      name: "", hometown: "", gender: "boy",
-      family: null, house: null,
-      money: 0, day: 1, eventIndex: 0,
-      phase: "day",
-      atLocation: "gate",
-      lastNight: "",
-      stats: { brains: 50, happiness: 50, popularity: 50, respect: 50, trust: 50 },
-      needs: { hunger: 70, energy: 70, freshness: 70 },
-      flags: [],
-      friends: {},
-      memories: [],
-      popsToday: 0,
-      popsUsed: [],
-      reportCard: null
-    };
+    function defaultPlayer() {
+      return {
+        name: "", hometown: "", gender: "boy",
+        family: null, house: null,
+        money: 0, day: 1, eventIndex: 0,
+        phase: "day",
+        atLocation: "gate",
+        lastNight: "",
+        stats: { brains: 50, happiness: 50, popularity: 50, respect: 50, trust: 50 },
+        needs: { hunger: 70, energy: 70, freshness: 70 },
+        flags: [],
+        friends: {},
+        memories: [],
+        popsToday: 0,
+        popsUsed: [],
+        reportCard: null
+      };
+    }
 
-    /* ---------- SAVE MAGIC ---------- */
+    let player = defaultPlayer();
+
+    /* ---------- SAVE MAGIC (with MIGRATION — no more restarts!) ---------- */
     function saveGame() {
       try { localStorage.setItem(SAVE_KEY, JSON.stringify(player)); } catch (e) {}
     }
     function loadGame() {
-      try { return JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) { return null; }
+      try {
+        let raw = localStorage.getItem(SAVE_KEY);
+        if (!raw) {
+          for (let i = 0; i < LEGACY_KEYS.length; i++) {
+            raw = localStorage.getItem(LEGACY_KEYS[i]);
+            if (raw) break;
+          }
+        }
+        if (!raw) return null;
+        let s = JSON.parse(raw);
+        if (!s || !s.name) return null;
+        return migratePlayer(s);
+      } catch (e) { return null; }
+    }
+    function migratePlayer(s) {
+      let d = defaultPlayer();
+      let out = {};
+      for (let k in d) {
+        let dv = d[k];
+        let sv = s[k];
+        if (dv !== null && typeof dv === "object" && !Array.isArray(dv)) {
+          out[k] = Object.assign({}, dv, (sv && typeof sv === "object" && !Array.isArray(sv)) ? sv : {});
+        } else if (Array.isArray(dv)) {
+          out[k] = Array.isArray(sv) ? sv : [];
+        } else {
+          out[k] = (typeof sv === "undefined") ? dv : sv;
+        }
+      }
+      return out;
     }
     function clamp(v) { return Math.max(0, Math.min(100, v)); }
     function clampFriend(v) { return Math.max(-20, Math.min(100, v)); }
@@ -897,7 +932,7 @@
       ]
     };
 
-    /* ---------- POP-IN ENGINE (friends show up & REMEMBER) ---------- */
+    /* ---------- POP-IN ENGINE ---------- */
     const POPINS = [
       {
         id: "pop-mamac", who: "❤️ Mama C", minDay: 1,
@@ -1508,7 +1543,7 @@
 
       player.reportCard = { score: s.score, total: total, grade: grade, remark: remark, caught: !!caught };
       logMemory("Test result: " + s.score + "/" + total + " — Grade " + grade);
-      if (caught) player.flags.push("Caught With Phone");
+      if (caught && player.flags.indexOf("Caught With Phone") === -1) player.flags.push("Caught With Phone");
       saveGame();
 
       document.getElementById("evTitle").textContent = caught ? "🚨 PAPER SEIZED!" : "📬 PAPER COLLECTED!";
@@ -1790,9 +1825,6 @@
       if (s && s.name) {
         player = s;
         if (!player.phase) player.phase = "day";
-        if (!player.friends) player.friends = {};
-        if (!player.memories) player.memories = [];
-        if (!player.popsUsed) player.popsUsed = [];
         initFriends();
         enterCampus();
       }
